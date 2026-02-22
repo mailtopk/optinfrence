@@ -1,22 +1,23 @@
 import tensorrt as trt
-import pycuda.driver as cuda
+import pycuda.driver as cudadriv
 import pycuda.autoinit
 import numpy as np
 import time
 
+
+# load Engine
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 engine_file_path = './enginefiles/resnet50_fp16_engine_pytorch.plan'
 
 #load engine/planer file
-with open(engine_file_path, "rb") as f, trt.Runtime(TRT_LOGGER) as runtime:
+with open(engine_file_path, "rb") as f :
+    runtime = trt.Runtime(TRT_LOGGER)
     engine = runtime.deserialize_cuda_engine(f.read())
-
-context = engine.create_execution_context()
+    context = engine.create_execution_context()
 
 
 
 # Get tensor names
-
 input_name = None
 output_name = None
 
@@ -24,9 +25,9 @@ for i in range(engine.num_io_tensors):
     name = engine.get_tensor_name(i)
     mode = engine.get_tensor_mode(name)
     if mode == trt.TensorIOMode.INPUT:
-        input_name = name
+        input_name = name # data
     else:
-        output_name = name
+        output_name = name # resnetv17_dense0_fwd
 
 # Get shapes & dtypes from engine
 input_shape = context.get_tensor_shape(input_name)
@@ -35,37 +36,69 @@ output_shape = context.get_tensor_shape(output_name)
 input_dtype = trt.nptype(engine.get_tensor_dtype(input_name))
 output_dtype = trt.nptype(engine.get_tensor_dtype(output_name))
 
+# Convert trt.Dims to tuple for PyCUDA compatibility
+host_input = cudadriv.pagelocked_empty(tuple(input_shape), dtype=input_dtype)
+host_output = cudadriv.pagelocked_empty(tuple(output_shape), dtype=output_dtype)
 
-#Allocate host memory
-h_input = np.random.rand(*input_shape).astype(input_dtype)
-h_output = np.empty(output_shape, dtype=output_dtype)
+# pre-fill input (if needed)
+np.copyto(host_input, np.random.rand(*input_shape).astype(input_dtype))
 
-# Allocate device memory
-d_input = cuda.mem_alloc(int(h_input.nbytes))
-d_output = cuda.mem_alloc(int(h_output.nbytes))
+# allocate device memory
+device_input = cudadriv.mem_alloc(host_input.nbytes)
+device_output = cudadriv.mem_alloc(host_output.nbytes)
+
+
 
 # set tensor addresses 
-context.set_tensor_address(input_name, int(d_input))
-context.set_tensor_address(output_name, int(d_output))
+context.set_tensor_address(input_name, int(device_input))
+context.set_tensor_address(output_name, int(device_output))
 
-stream = cuda.Stream()
+# execution step
+stream = cudadriv.Stream()
 
 
-#warm up 
+# create Cuda events for timing
+start_event = cudadriv.Event()
+end_event = cudadriv.Event()
+
+# latencies stroage
+iterations = 1000
+latencies = []
+
+print("warming up GPU..")
 for _ in range(10):
-    cuda.memcpy_htod_async(d_input, h_input, stream)
-    context.execute_async_v3(stream_handle=stream.handle)
-    cuda.memcpy_dtoh_async(h_output, d_output, stream)
-    stream.synchronize()
-    
-start_time = time.time()
+	cudadriv.memcpy_htod_async(device_input, host_input, stream)
+	context.execute_async_v3(stream_handle=stream.handle)
+	cudadriv.memcpy_dtoh_async(host_output, device_output, stream)
+stream.synchronize()
 
-for _ in range(1000):
-    cuda.memcpy_htod_async(d_input, h_input, stream)
-    context.execute_async_v3(stream_handle=stream.handle)
-    cuda.memcpy_dtoh_async(h_output, d_output, stream)
-    stream.synchronize()
+print(f"Running {iterations} ....")
 
-end_time = time.time()
+for i in range(iterations):
+	start_event.record()
+	
+	cudadriv.memcpy_htod_async(device_input, host_input, stream)
+	context.execute_async_v3(stream_handle=stream.handle)
+	cudadriv.memcpy_dtoh_async(host_output, device_output, stream)
+	
+	end_event.record()
+	end_event.synchronize()
+	
+	# store in mil sec
+	latency = end_event.time_since(start_event)
+	latencies.append(latency)
+	
+# calculate
+latencis = np.array(latencies)
+avg_latency = np.mean(latencies)
+p99_latency = np.percentile(latencis, 99)
+p50_latency = np.percentile(latencis, 50)
+fps = 1000.0/avg_latency
 
-print("Avg latency : ", (end_time - start_time) / 100 * 1000, "ms")
+print("-" * 30)
+print(f"Average Latency : {avg_latency:.3f} ms")
+print(f"Media (P50) : {p50_latency:.3f} ms")
+print(f"99th Percentile: {p99_latency:.3f} ms")
+print(f"Throughtput: {fps:.2f} FPS")
+print("-" * 30)
+print()
