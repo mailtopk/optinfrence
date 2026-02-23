@@ -3,6 +3,7 @@ import pycuda.driver as cudadriv
 import pycuda.autoinit
 import numpy as np
 import time
+import nvtx
 
 # load Engine
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
@@ -62,23 +63,27 @@ def benchmark_streams(engine, num_streams):
     # 2. Timing Events
     start, end = cudadriv.Event(), cudadriv.Event()
     
-    # 3. Execution (Simulate concurrent streams)
+        # 3. Execution (SIMULATE CONCURRENT STREAMS)
     start.record()
-    for s in streams_data:
-        # Launch H2D and Kernel asynchronously across different streams
-        cudadriv.memcpy_htod_async(s['d_in'], s['h_in'], s['st'])
-        s['ctx'].execute_async_v3(stream_handle=s['st'].handle)
-        cudadriv.memcpy_dtoh_async(s['h_out'], s['d_out'], s['st'])
     
-    # Wait for the slowest stream to finish
+    # Use ONE loop to "fire" all streams into the GPU queue
+    with nvtx.annotate(f"Batch_of_{num_streams}", color="red"):
+        for i, s in enumerate(streams_data):
+            # Annotate each stream launch
+            with nvtx.annotate(f"Launch_Stream_{i}", color="blue"):
+                cudadriv.memcpy_htod_async(s['d_in'], s['h_in'], s['st'])
+                s['ctx'].execute_async_v3(stream_handle=s['st'].handle)
+                cudadriv.memcpy_dtoh_async(s['h_out'], s['d_out'], s['st'])
+    
+    # 4. Wait for ALL streams to finish AFTER launching them all
+    # This is the "secret sauce" to seeing them overlap in Nsight
     for s in streams_data:
         s['st'].synchronize()
         
     end.record()
     end.synchronize()
     
-    total_ms = end.time_since(start)
-    return total_ms
+    return end.time_since(start)
 
 
 

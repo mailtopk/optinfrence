@@ -55,3 +55,8 @@ Configuration	Latency	Performance
 Allocate Once: (Importent) Never call mem_alloc or pagelocked_empty in your main loop. It is slow and causes memory leaks.
 Sync is Key: Always stream.synchronize() before you try to read the values in h_output, otherwise the CPU might read the data before the GPU is finished writing it.
 MAXN Mode: Always run sudo jetson_clocks before benchmarking to ensure the hardware isn't "sleeping" between frames.
+
+6. Create profile
+```
+nsys profile -o './profile/resnet50_multistream_profile' --trace=cuda,nvtx,osrt python3 resnet50_multistream.py
+```
