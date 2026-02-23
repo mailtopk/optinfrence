@@ -58,5 +58,42 @@ MAXN Mode: Always run sudo jetson_clocks before benchmarking to ensure the hardw
 
 6. Create profile
 ```
-nsys profile -o './profile/resnet50_multistream_profile' --trace=cuda,nvtx,osrt python3 resnet50_multistream.py
+nsys profile --trace=cuda,nvtx -o ../profile/restnet_cude_code_benchmark_profile ./benchmark
 ```
+
+Coutput 
+```
+ollecting data...
+file Path is : ../enginefiles/resnet50_fp16_engine_pytorch.plan
+Using an engine plan file across different models of devices is not recommended and is likely to affect performance or even cause errors.
+Streams    | Latency (ms)    | Status
+----------------------------------------
+1          | 116.777         | OVER LIMIT
+2          | 13.275          | OK
+3          | 20.748          | OK
+4          | 37.240          | OVER LIMIT
+5          | 34.355          | OVER LIMIT
+6          | 45.083          | OVER LIMIT
+7          | 24.914          | OK
+8          | 39.737          | OVER LIMIT
+9          | 32.097          | OK
+10         | 54.512          | OVER LIMIT
+Generating '/tmp/nsys-report-4cbb.qdstrm'
+[1/1] [0%                          ] restnet_cude_code_benchmark_profile.n[1/1] [0%                          ] restnet_cude_code_benchmark_profile.n[1/1] [5%                          ] restnet_cude_code_benchmark_profile.n[1/1] [7%                          ] restnet_cude_code_benchmark_profile.n[1/1] [=======39%                  ] restnet_cude_code_benchmark_profile.n[1/1] [===================79%      ] restnet_cude_code_benchmark_profile.n[1/1] [====================85%     ] restnet_cude_code_benchmark_profile.n[1/1] [=====================86%    ] restnet_cude_code_benchmark_profile.n[1/1] [=====================89%    ] restnet_cude_code_benchmark_profile.n[1/1] [========================100%] restnet_cude_code_benchmark_profile.n[1/1] [========================100%] restnet_cude_code_benchmark_profile.nsys-rep
+Generated:
+    /home/user/source/optinfrence/cuda_prg/../profile/restnet_cude_code_benchmark_profile.nsys-rep
+
+```
+
+7. Nsight 
+
+![Resnet50_f16_profile_cuda_code](./images/Nsights_resNet50_cuda_code.png)
+
+### Key Observations from your Timeline
+- Blue and Red Bars (Kernels): These represent your actual [TensorRT compute work](1.4.3, 1.4.8). Because multiple rows under CUDA HW show activity at the same vertical timestamp, your GPU is executing multiple kernels simultaneously.
+- Green Bars (Memory Copies): These represent Host-to-Device (HtoD) transfers. Your profile shows Compute/Copy Overlap, where a Green bar on one stream occurs while a Blue/Red bar is active on another. This is why your latency improved; the GPU doesn't sit idle waiting for data.
+- Visible Gaps: The gaps between kernels are primarily caused by Host Latency. This is the "CPU-to-GPU" overhead—the time it takes for the CPU to enqueue the next command through the driver before the GPU can start it. 
+
+- Performance Insights
+Occupancy: If a single kernel only uses a small percentage of the GPU's Streaming Multiprocessors (SMs), your multi-stream approach fills that "empty space" with work from other streams.
+Serial vs. Overlapped: In a purely serial execution (1 stream), you would see one bar finish completely before the next one starts on the same row. Your image clearly shows parallelism across different stream indices.
