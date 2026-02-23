@@ -57,13 +57,14 @@ Sync is Key: Always stream.synchronize() before you try to read the values in h_
 MAXN Mode: Always run sudo jetson_clocks before benchmarking to ensure the hardware isn't "sleeping" between frames.
 
 6. Create profile
+Profile is created for ../cuda_prg/benchmark_reset.cu (C++)
 ```
 nsys profile --trace=cuda,nvtx -o ../profile/restnet_cude_code_benchmark_profile ./benchmark
 ```
 
-Coutput 
+Output 
 ```
-ollecting data...
+collecting data...
 file Path is : ../enginefiles/resnet50_fp16_engine_pytorch.plan
 Using an engine plan file across different models of devices is not recommended and is likely to affect performance or even cause errors.
 Streams    | Latency (ms)    | Status
