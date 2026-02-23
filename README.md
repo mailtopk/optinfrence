@@ -80,7 +80,7 @@ Streams    | Latency (ms)    | Status
 9          | 32.097          | OK
 10         | 54.512          | OVER LIMIT
 Generating '/tmp/nsys-report-4cbb.qdstrm'
-[1/1] [0%                          ] restnet_cude_code_benchmark_profile.n[1/1] [0%                          ] restnet_cude_code_benchmark_profile.n[1/1] [5%                          ] restnet_cude_code_benchmark_profile.n[1/1] [7%                          ] restnet_cude_code_benchmark_profile.n[1/1] [=======39%                  ] restnet_cude_code_benchmark_profile.n[1/1] [===================79%      ] restnet_cude_code_benchmark_profile.n[1/1] [====================85%     ] restnet_cude_code_benchmark_profile.n[1/1] [=====================86%    ] restnet_cude_code_benchmark_profile.n[1/1] [=====================89%    ] restnet_cude_code_benchmark_profile.n[1/1] [========================100%] restnet_cude_code_benchmark_profile.n[1/1] [========================100%] restnet_cude_code_benchmark_profile.nsys-rep
+[1/1] [0%] restnet_cude_code_benchmark_profile.n[1/1] [0%] restnet_cude_code_benchmark_profile.n[1/1] [5%] restnet_cude_code_benchmark_profile.n[1/1] [7% ] restnet_cude_code_benchmark_profile.n[1/1] [=======39%] restnet_cude_code_benchmark_profile.n[1/1] [===================79%] restnet_cude_code_benchmark_profile.n[1/1] [====================85%] restnet_cude_code_benchmark_profile.n[1/1] [=====================86%    ] restnet_cude_code_benchmark_profile.n[1/1] [=====================89%    ] restnet_cude_code_benchmark_profile.n[1/1] [========================100%] restnet_cude_code_benchmark_profile.n[1/1] [========================100%] restnet_cude_code_benchmark_profile.nsys-rep
 Generated:
     /home/user/source/optinfrence/cuda_prg/../profile/restnet_cude_code_benchmark_profile.nsys-rep
 
@@ -90,11 +90,11 @@ Generated:
 
 ![Resnet50_f16_profile_cuda_code](./images/Nsights_resNet50_cuda_code.png)
 
-### Key Observations from your Timeline
-- Blue and Red Bars (Kernels): These represent your actual [TensorRT compute work](1.4.3, 1.4.8). Because multiple rows under CUDA HW show activity at the same vertical timestamp, your GPU is executing multiple kernels simultaneously.
-- Green Bars (Memory Copies): These represent Host-to-Device (HtoD) transfers. Your profile shows Compute/Copy Overlap, where a Green bar on one stream occurs while a Blue/Red bar is active on another. This is why your latency improved; the GPU doesn't sit idle waiting for data.
+### Key Observations from Timeline
+- Blue and Red Bars (Kernels): These represent actual [TensorRT compute work](1.4.3, 1.4.8). Because multiple rows under CUDA HW show activity at the same vertical timestamp, GPU is executing multiple kernels simultaneously.
+- Green Bars (Memory Copies): These represent Host-to-Device (HtoD) transfers. Profile shows Compute/Copy Overlap, where a Green bar on one stream occurs while a Blue/Red bar is active on another. This is why latency improved; the GPU doesn't sit idle waiting for data.
 - Visible Gaps: The gaps between kernels are primarily caused by Host Latency. This is the "CPU-to-GPU" overhead—the time it takes for the CPU to enqueue the next command through the driver before the GPU can start it. 
 
 - Performance Insights
-Occupancy: If a single kernel only uses a small percentage of the GPU's Streaming Multiprocessors (SMs), your multi-stream approach fills that "empty space" with work from other streams.
-Serial vs. Overlapped: In a purely serial execution (1 stream), you would see one bar finish completely before the next one starts on the same row. Your image clearly shows parallelism across different stream indices.
+Occupancy: If a single kernel only uses a small percentage of the GPU's Streaming Multiprocessors (SMs), multi-stream approach fills that "empty space" with work from other streams.
+Serial vs. Overlapped: In a purely serial execution (1 stream), you would see one bar finish completely before the next one starts on the same row. image clearly shows parallelism across different stream indices.
