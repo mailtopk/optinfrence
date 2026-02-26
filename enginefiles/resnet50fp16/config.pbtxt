@@ -1,0 +1,11 @@
+name: "resnet50fp16"
+platform: "tensorrt_plan"
+max_batch_size: 8
+
+# auto-fill input/output shapes from the engine
+instance_group  [
+  {
+    kind: KIND_GPU
+    count: 1
+  }
+]

@@ -98,3 +98,22 @@ Generated:
 - Performance Insights
 Occupancy: If a single kernel only uses a small percentage of the GPU's Streaming Multiprocessors (SMs), multi-stream approach fills that "empty space" with work from other streams.
 Serial vs. Overlapped: In a purely serial execution (1 stream), you would see one bar finish completely before the next one starts on the same row. image clearly shows parallelism across different stream indices.
+
+## Triton Server
+```
+$ sudo docker pull nvcr.io/nvidia/tritonserver:24.07-py3-igpu
+
+$ sudo docker run --rm --runtime nvidia --n
+etwork host -v ./enginefiles:/models nvcr.io/nvidia/tritonserver:24.07-py3-igpu
+ tritonserver --model-repository=/models  --model-control-mode=explicit
+
+``
+- Test server connection
+```
+$ curl -v localhost:8000/v2/health/ready
+``
+
+- Useful server urls
+```
+$ curl -X POST localhost:8000/v2/repository/index
+``
