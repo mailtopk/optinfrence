@@ -99,15 +99,26 @@ Generated:
 Occupancy: If a single kernel only uses a small percentage of the GPU's Streaming Multiprocessors (SMs), multi-stream approach fills that "empty space" with work from other streams.
 Serial vs. Overlapped: In a purely serial execution (1 stream), you would see one bar finish completely before the next one starts on the same row. image clearly shows parallelism across different stream indices.
 
-## Triton Server
+## Get host required version
 ```
-$ sudo docker pull nvcr.io/nvidia/tritonserver:24.07-py3-igpu
+ppooboni@ubuntu:~$ dpkg -l | grep nvinfer | awk '{print $2, $3}'
+libnvinfer-bin 10.3.0.30-1+cuda12.5
+libnvinfer-dev 10.3.0.30-1+cuda12.5
+libnvinfer-dispatch-dev 10.3.0.30-1+cuda12.5
 
-$ sudo docker run --rm --runtime nvidia --n
-etwork host -v ./enginefiles:/models nvcr.io/nvidia/tritonserver:24.07-py3-igpu
- tritonserver --model-repository=/models  --model-control-mode=explicit
+```
 
-``
+
+## Get container version
+```
+root@ubuntu:/opt/tritonserver# dpkg -l | grep nvinfer | awk '{print $2, $3}'
+libnvinfer-bin 10.3.0.26-1+cuda12.5
+libnvinfer-dev 10.3.0.26-1+cuda12.5
+libnvinfer-dispatch-dev 10.3.0.26-1+cuda12.5## Triton Server
+```
+$ sudo docker run -it --rm --runtime nvidia --network host -v $(pwd)/models:/models nvcr.io/nvidia/tritonserver:24.08-py3-igpu tritonserver --model-repository=/models
+
+```
 - Test server connection
 ```
 $ curl -v localhost:8000/v2/health/ready
@@ -117,3 +128,39 @@ $ curl -v localhost:8000/v2/health/ready
 ```
 $ curl -X POST localhost:8000/v2/repository/index
 ``
+
+curl -X POST localhost:8000/v2/repository/models/resnet50fp16/load
+
+
+### Troubleshooting
+
+JetPack Version
+user@ubuntu:~$ cat /etc/nv_tegra_release 
+# R36 (release), REVISION: 5.0, GCID: 43688277, BOARD: generic, EABI: aarch64, DATE: Fri Jan 16 03:50:45 UTC 2026
+# KERNEL_VARIANT: oot
+#TARGET_USERSPACE_LIB_DIR=nvidia
+#TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia
+Get Tensorrt version
+```
+$ sudo docker exec -it <containerid> nm -D /usr/lib/aarch64-linux-gnu/libnvinfer.so | grep tensorrt_version
+$ sudo docker exec -it b209 ls -ls /models
+```
+
+```
+$sudo docker run -it --rm --runtime nvidia -u root -it --network host -v $(pwd)/models:/models nvcr.io/nvidia/tritonserver:24.08-py3-igpu tritonserver --model-repository=/models  --model-control-mode=explicit --disable-auto-complete-config
+```
+
+Create F16 file from onnx on container
+```
+$ /usr/src/tensorrt/bin/trtexec --onnx=/models/resnetonx/1/model.onnx --saveEngine=/models/resnetplan/2/model.plan --int8 --fp16 --verbose
+``
+
+Verify 
+$ curl -v localhost:8000/v2/models/resnetonx
+{"name":"resnetonx","versions":["1"],"platform":"onnxruntime_onnx","inputs":[{"name":"data","datatype":"FP32","shape":[-1,3,224,224]}],"outputs":[{"name":"resnetv17_dense0_fwd","datatype":"FP32","shape":[-1,1000]}]}
+
+## Check models are ready   
+```
+$ curl -X POST localhost:8000/v2/repository/index
+[{"name":"resnetfp16","version":"1","state":"READY"},{"name":"resnetonx","version":"1","state":"READY"}]
+```

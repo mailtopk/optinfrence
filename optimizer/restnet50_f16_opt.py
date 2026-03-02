@@ -36,6 +36,13 @@ def build_engine(onnx_file_path, engin_file_path):
     # config
     config.add_optimization_profile(profile)
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 1 << 30 ) #1GP
+    
+    # Note : deserializing 
+    # runtime = trt.Runtime(logger)
+    # runtime.engine_host_code_allowed = True
+    # engine = runtime.deserialize_cuda_engine(engine_bytes)
+    config.set_flag(trt.BuilderFlag.VERSION_COMPATIBLE)
+    
     #enable FP16 mode
     if builder.platform_has_fast_fp16:
         config.set_flag(trt.BuilderFlag.FP16)
@@ -58,8 +65,8 @@ def build_engine(onnx_file_path, engin_file_path):
     print(f"Completed optmization FP16. Engine file stored {engin_file_path}")
 
 if __name__ == "__main__":
-    onnx_model_path = "../models/resnet50-v1-7.onnx"
-    enggine_output_path = "../enginefiles/resnet50fp16.engine"
+    onnx_model_path = '../models/resnetonx/1/model.onnx' #"../models/resnet50-v1-7.onnx"
+    enggine_output_path = "./resnet50fp16.plan"
 
     if not os.path.exists(onnx_model_path):
         print(f"model file not found at {onnx_model_path}")
