@@ -147,7 +147,7 @@ $ sudo docker exec -it b209 ls -ls /models
 ```
 
 ```
-$sudo docker run -it --rm --runtime nvidia -u root -it --network host -v $(pwd)/models:/models nvcr.io/nvidia/tritonserver:24.08-py3-igpu tritonserver --model-repository=/models  --model-control-mode=explicit --disable-auto-complete-config
+$sudo docker run -it --rm --runtime nvidia -u root -it --network host -v $(pwd)/models:/models nvcr.io/nvidia/tritonserver:24.08-py3-igpu tritonserver --model-repository=/models  --model-control-mode=explicit
 ```
 
 Create F16 file from onnx on container
