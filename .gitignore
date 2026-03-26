@@ -7,7 +7,6 @@ __pycache__/
 *.so
 
 # model files
-*.onnx
 
 # Distribution / packaging
 .Python
