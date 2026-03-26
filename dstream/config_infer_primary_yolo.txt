@@ -1,0 +1,27 @@
+[property]
+gpu-id=0
+net-scale-factor=0.0039215697906911373
+
+onnx-file=/home/ppooboni/source/optinfrence/dstream/yolov8n.onnx
+model-engine-file=/home/ppooboni/source/optinfrence/dstream/yolov8n_orin.engine
+
+labelfile-path=/home/ppooboni/source/optinfrence/dstream/labels.txt
+
+batch-size=1
+network-mode=0
+num-detected-classes=80
+interval=0
+
+gie-unique-id=1
+process-mode=1
+
+network-type=0
+cluster-mode=2
+maintain-aspect-ratio=1
+
+custom-lib-path=/home/ppooboni/source/optinfrence/dstream/libnvdsinfer_custom_impl_yolo.so
+parse-bbox-func-name=NvDsInferParseCustomYolo
+
+# Run 'trtexec --loadEngine=yolov8n.engine --exportLayerInfo=layers.json' to confirm this name
+#$ /usr/src/tensorrt/bin/trtexec --loadEngine=./tensorrt_engine/yolov8n.engine --exportLayerInfo=./tensorrt_engine/yolov8nlayer.joson
+
