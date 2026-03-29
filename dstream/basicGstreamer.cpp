@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
     /* 2. Set Properties */
     g_object_set(G_OBJECT(source), "location", "front_4_720p_annexb.h264", NULL);
     g_object_set(G_OBJECT(streammux), "batch-size", 1, "width", 1920, "height", 1080, "batched-push-timeout", 40000, NULL);
-    g_object_set(G_OBJECT(pgie), "config-file-path", "/home/ppooboni/source/optinfrence/dstream/config_infer_primary_yolo.txt", NULL);
+    g_object_set(G_OBJECT(pgie), "config-file-path", "./config_infer_primary_yolo.txt", NULL);
 
     // Force NVMM memory format for Orin
     GstCaps *caps = gst_caps_from_string("video/x-raw(memory:NVMM), format=NV12");
