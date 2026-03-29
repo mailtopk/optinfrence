@@ -12,6 +12,39 @@ Key Features:
  - YOLOv8 ONNX model support
  - Optimized inference using TensorRT engine
  - GPU memory management for high throughput
+ 
+
+## Inference Optimization
+
+The project uses DeepStream SDK and TensorRT for high-performance object detection:
+
+1. TensorRT Engine
+ - ONNX YOLOv8 model is converted into a TensorRT engine (.engine) optimized for NVIDIA GPU.
+ - Optimizations applied:
+     * Layer fusion
+     * Kernel auto-tuning
+     * Precision modes (FP32, FP16, INT8) for faster inference
+2. Asynchronous and Batched Processing
+   - nvstreammux can batch multiple frames to maximize GPU utilization
+   - Asynchronous processing allows GPU inference while CPU handles other tasks ((process-mode=1 # Ref config file)
+3. Custom YOLO Parsing
+   - Custom parser library (libnvdsinfer_custom_impl_yolo.so) extracts bounding boxes and labels efficiently
+   - Reduces CPU overhead during post-processing
+4. GPU Memory Optimization
+   - Frames converted to NVMM GPU memory to avoid CPU↔GPU transfers
+   - Maintains aspect ratio to minimize unnecessary computation
+   
+ 
+ ### How is this compare to OpenCV
+ Object detection can be implemented using OpenCV python, this diff 
+
+| Feature | Python + OpenCV + YOLO | C++ DeepStream Script |
+|---|---|---|
+| Data Path | GPU→CPU→GPU | GPU-to-GPU (Zero-Copy) |
+| Decoding | Software or Hardware-hybrid | Pure Hardware (NVDEC) |
+| Inference Engine | Ultralytics Wrapper | Native TensorRT (nvinfer) |
+| Scalability | Struggles with > 1 | Can handle many streams easily
+
 
 ## Pipeline Architecture
 Video processing pipeline is implemented using  DeepStream/GStreamer elements:
@@ -52,12 +85,19 @@ $ g++ -o libnvdsinfer_custom_impl_yolo.so -shared -fPIC ./nvdsinfer_custom_yolo/
 -lnvds_infer -lcudart
 ```
 ### Running the pipeline:
+
+#### Create executable
 ```bash
-$ g++ -o my-deepstream-app basicGstreamer.cpp \
+$ g++ -o basicGstreamer-app basicGstreamer.cpp \
 -I /opt/nvidia/deepstream/deepstream-7.1/sources/includes \
 -I /usr/local/cuda/include $(pkg-config --cflags --libs gstreamer-1.0 glib-2.0) \
 -L /opt/nvidia/deepstream/deepstream-7.1/lib \
 -lnvdsgst_meta -lnvds_meta -lnvdsgst_helper -lnvds_infer
+```
+
+#### Run App
+```bash
+$ ./basicGstreamer-app
 ```
 
 ## Config file highlights:
@@ -68,22 +108,3 @@ $ g++ -o my-deepstream-app basicGstreamer.cpp \
 - process-mode → Asynchronous inference mode
 - custom-lib-path & parse-bbox-func-name → Custom YOLO parser
 
-## Inference Optimization
-
-The project leverages DeepStream SDK and TensorRT for high-performance object detection:
-
-1. TensorRT Engine
- - ONNX YOLOv8 model is converted into a TensorRT engine (.engine) optimized for NVIDIA GPU.
- - Optimizations applied:
-     * Layer fusion
-     * Kernel auto-tuning
-     * Precision modes (FP32, FP16, INT8) for faster inference
-2. Asynchronous and Batched Processing
-   - nvstreammux can batch multiple frames to maximize GPU utilization
-   - Asynchronous processing (process-mode=1) allows GPU inference while CPU handles other tasks
-3. Custom YOLO Parsing
-   - Custom parser library (libnvdsinfer_custom_impl_yolo.so) extracts bounding boxes and labels efficiently
-   - Reduces CPU overhead during post-processing
-4. GPU Memory Optimization
-   - Frames converted to NVMM GPU memory to avoid CPU↔GPU transfers
-   - Maintains aspect ratio to minimize unnecessary computation
