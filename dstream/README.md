@@ -79,11 +79,11 @@ The project leverages DeepStream SDK and TensorRT for high-performance object de
      * Kernel auto-tuning
      * Precision modes (FP32, FP16, INT8) for faster inference
 2. Asynchronous and Batched Processing
-  - nvstreammux can batch multiple frames to maximize GPU utilization
-  - Asynchronous processing (process-mode=1) allows GPU inference while CPU handles other tasks
+   - nvstreammux can batch multiple frames to maximize GPU utilization
+   - Asynchronous processing (process-mode=1) allows GPU inference while CPU handles other tasks
 3. Custom YOLO Parsing
-  - Custom parser library (libnvdsinfer_custom_impl_yolo.so) extracts bounding boxes and labels efficiently
-  - Reduces CPU overhead during post-processing
+   - Custom parser library (libnvdsinfer_custom_impl_yolo.so) extracts bounding boxes and labels efficiently
+   - Reduces CPU overhead during post-processing
 4. GPU Memory Optimization
-  - Frames converted to NVMM GPU memory to avoid CPU↔GPU transfers
-  - Maintains aspect ratio to minimize unnecessary computation
+   - Frames converted to NVMM GPU memory to avoid CPU↔GPU transfers
+   - Maintains aspect ratio to minimize unnecessary computation
