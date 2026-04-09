@@ -1,0 +1,17 @@
+[property]
+enable=1
+config-width=1280
+config-height=720
+
+[roi-filtering-stream-0]
+enable=1
+roi-RF=295;643;579;634;642;913;56;828
+inverse=0
+class-id=0
+
+[line-crossing-stream-0]
+enable=1
+# Format: x1;y1;x2;y2;x3;y3;x4;y4 (Line definition + direction)
+line-crossing-Entry=486;566;845;566;486;600;845;600
+class-id=0
+exit-direction=south
