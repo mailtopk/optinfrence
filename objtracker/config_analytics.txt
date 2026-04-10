@@ -5,13 +5,16 @@ config-height=720
 
 [roi-filtering-stream-0]
 enable=1
-roi-RF=295;643;579;634;642;913;56;828
+# A rectangle covering the center of the screen
+# Points: Top-Left, Top-Right, Bottom-Right, Bottom-Left
+roi-RF=320;180;960;180;960;540;320;540
 inverse=0
 class-id=0
 
 [line-crossing-stream-0]
 enable=1
-# Format: x1;y1;x2;y2;x3;y3;x4;y4 (Line definition + direction)
-line-crossing-Entry=486;566;845;566;486;600;845;600
+# A vertical line at x=640 (Dead center)
+# Format: x1;y1 (Start); x2;y2 (End); x3;y3; x4;y4 (Direction Arrow pointing Right)
+line-crossing-Entry=640;100;640;620;700;100;700;620
 class-id=0
-exit-direction=south
+exit-direction=east

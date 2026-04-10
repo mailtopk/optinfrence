@@ -20,7 +20,9 @@ extern "C" bool NvDsInferParseCustomYolo(
     NvDsInferParseDetectionParams const &detectionParams,
     std::vector<NvDsInferObjectDetectionInfo> &objectList) 
 {
-    if (outputLayersInfo.empty()) return false;
+    if (outputLayersInfo.empty()) {
+    	return false;
+    }
 
     const NvDsInferLayerInfo &layer = outputLayersInfo[0];
     float* output = (float*)layer.buffer;

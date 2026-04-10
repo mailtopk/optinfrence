@@ -18,8 +18,6 @@ const char* NVDCF_CONFIG_PATH = "./config_tracker_NvDCF.yml";
 static GstPadProbeReturn analytics_done_buf_probe(GstPad *pad, GstPadProbeInfo *info, gpointer u_data) {
     GstBuffer *buf = (GstBuffer *)info->data;
     NvDsBatchMeta *batch_meta = gst_buffer_get_nvds_batch_meta(buf);
-
-    std::cout << "Analytics Buffer Probe Triggered" << std::endl;
     
     for (NvDsFrameMetaList *l_frame = batch_meta->frame_meta_list; l_frame != NULL; l_frame = l_frame->next) {
         NvDsFrameMeta *frame_meta = (NvDsFrameMeta *)(l_frame->data);
@@ -34,6 +32,18 @@ static GstPadProbeReturn analytics_done_buf_probe(GstPad *pad, GstPadProbeInfo *
                 // Example: Print cumulative line crossing count for your "Entry" line
                 if (meta->objLCCumCnt.find("Entry") != meta->objLCCumCnt.end()) {
                     std::cout << "Total Entry Count: " << meta->objLCCumCnt["Entry"] << std::endl;
+                }
+                
+                // Current Occupancy (Who is inside ROI 'RF' right now)
+                if (meta->objInROIcnt.find("RF") != meta->objInROIcnt.end()) {
+                    uint32_t current_occupancy = meta->objInROIcnt["RF"];
+                    std::cout << "[ROI RF] Current Occupancy: " << current_occupancy << std::endl;
+                }
+
+                // Cumulative Total (How many passed through Line 'Entry' since start)
+                if (meta->objLCCumCnt.find("Entry") != meta->objLCCumCnt.end()) {
+                    uint64_t total_crossed = meta->objLCCumCnt["Entry"];
+                    std::cout << "[Line Entry] Total Crossed: " << total_crossed << std::endl;
                 }
             }
         }
@@ -146,8 +156,8 @@ int main(int argc, char *argv[]) {
     gst_object_unref(sinkpad);
     gst_object_unref(srcpad);
 
-    // Link: Muxer -> Infer -> Conv -> OSD -> Sink
-    if (!gst_element_link_many(streammux, pgie, nvvidconv2, nvosd, sink, NULL)) {
+    // Link: Muxer -> Infer ->tracker->analytics -> Conv -> OSD -> Sink
+    if (!gst_element_link_many(streammux, pgie, tracker, analytics, nvvidconv2, nvosd, sink, NULL)) {
         std::cerr << "Failed to link remaining elements" << std::endl;
         return -1;
     }
