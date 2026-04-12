@@ -16,61 +16,122 @@ Device Matching: We addressed the warning about "different models of devices." T
 We corrected the C++ manual pad requests. In DeepStream, you cannot simply link elements to the nvstreammux; you must request a specific sink pad (like sink_0) to tell the muxer which "channel" the video belongs to.
 Final Optimized Pipeline Flow:
 File Source → H264 Parser → Hardware Decoder → Converter → Caps Filter (NVMM) → Streammux → nvinfer (YOLO) → OSD → EGL Renderer.
+
+Updated
+File source -> qtdemux (mp4) -> H264 Parser 
 */
 #include <gst/gst.h>
 #include <glib.h>
 #include <stdio.h>
 #include "gstnvdsmeta.h"
 
+GstCaps *caps = gst_pad_get_current_caps(pad);
+    if (!caps) {
+        g_print("No caps available on pad\n");
+        return;
+    }
+    const gchar *name = gst_structure_get_name(gst_caps_get_structure(caps, 0));
+const GstStructure *structure = gst_caps_get_structure(caps, 0);
+    if (!structure) {
+        g_print("No structure in caps\n");
+        gst_caps_unref(caps);
+        return;
+    }
+    const gchar *name = gst_structure_get_name(structure);
+    const gchar *name = gst_structure_get_name(gst_caps_get_structure(caps, 0)); 
+    
+    g_print("In Demux pad adding. Name: %s\n", name);
+    
+    // Check if the file is H265 to match our h265parse element
+    if (g_str_has_prefix(name, "video/x-h265")) {
+        GstElement *parser = (GstElement*)data;
+GstPad *sinkpad = gst_element_get_static_pad(parser, "sink");
+        if (!sinkpad) {
+            g_print("Failed to get sink pad from parser\n");
+            gst_caps_unref(caps);
+            return;
+        }
+        
+        if (gst_pad_is_linked(sinkpad)) {
+            g_print("Already linked\n");
+            gst_object_unref(sinkpad);
+            gst_caps_unref(caps);
+            return;
+        }
+        
+        if (gst_pad_link(pad, sinkpad) != GST_PAD_LINK_OK) {
+            g_print("Failed to link demux to h265parser\n");
+        } else {
+            g_print("Linked demux - h265parser successfully\n");
+        }
+        gst_object_unref(sinkpad);
+    } else {
+        g_print("Skipping pad: %s (Not H265 video)\n", name);
+    }
+    
+    gst_caps_unref(caps);
+}
+
 int main(int argc, char *argv[]) {
+    g_print("****************** RUNNING MAIN ************");
     GMainLoop *loop = NULL;
-    GstElement *pipeline, *source, *h264parser, *decoder, *nvvidconv0, *caps_filter, 
+    GstElement *pipeline, *source, *demux, *h265parser, *decoder, *nvvidconv0, *caps_filter, 
                *streammux, *pgie, *nvvidconv, *nvosd, *sink;
 
     gst_init(&argc, &argv);
     loop = g_main_loop_new(NULL, FALSE);
 
     /* 1. Create Elements */
-    pipeline   = gst_pipeline_new("deepstream-file-pipeline");
-    source     = gst_element_factory_make("filesrc", "file-source");
-    h264parser = gst_element_factory_make("h264parse", "h264-parser");
-    decoder    = gst_element_factory_make("nvv4l2decoder", "nvv4l2-decoder");
-    
-    // NEW: Memory conversion for Orin stability
-    nvvidconv0  = gst_element_factory_make("nvvideoconvert", "nvvideo-converter0");
-    caps_filter = gst_element_factory_make("capsfilter", "capsfilter0");
-    
-    streammux  = gst_element_factory_make("nvstreammux", "stream-muxer");
-    pgie       = gst_element_factory_make("nvinfer", "primary-nvinference-engine");
-    nvvidconv  = gst_element_factory_make("nvvideoconvert", "nvvideo-converter1");
-    nvosd      = gst_element_factory_make("nvdsosd", "nv-onscreendisplay");
-    sink       = gst_element_factory_make("nveglglessink", "nvvideo-renderer");
+    pipeline   	= gst_pipeline_new("deepstream-file-pipeline");
+    source     	= gst_element_factory_make("filesrc", "file-source");
+    demux 	= gst_element_factory_make("qtdemux", "qt-demuxer");
+    h265parser 	= gst_element_factory_make("h265parse", "h265-parser"); // h265 - "High Efficiency Video Coding" (HEVC).
+    decoder    	= gst_element_factory_make("nvv4l2decoder", "nvv4l2-decoder");
+    nvvidconv0  = gst_element_factory_make("nvvideoconvert", "nvvideo-converter0"); //Memory conversion for Orin stability
+    caps_filter = gst_element_factory_make("capsfilter", "capsfilter0");    
+    streammux  	= gst_element_factory_make("nvstreammux", "stream-muxer");
+    pgie       	= gst_element_factory_make("nvinfer", "primary-nvinference-engine");
+    nvvidconv  	= gst_element_factory_make("nvvideoconvert", "nvvideo-converter1");
+    nvosd      	= gst_element_factory_make("nvdsosd", "nv-onscreendisplay");
+    sink       	= gst_element_factory_make("nveglglessink", "nvvideo-renderer");
 
     if (!pipeline || !source || !pgie || !sink || !nvvidconv0 || !caps_filter) {
         g_printerr("One element could not be created. Exiting.\n");
         return -1;
     }
 
-    /* 2. Set Properties */
-    g_object_set(G_OBJECT(source), "location", "front_4_720p_annexb.h264", NULL);
+    /*Set Properties */
+    g_object_set(G_OBJECT(source), "location", "/home/ppooboni/source/optinfrence/data/video/front_6.MP4", NULL); //"front_4_720p_annexb.h264", NULL);
     g_object_set(G_OBJECT(streammux), "batch-size", 1, "width", 1920, "height", 1080, "batched-push-timeout", 40000, NULL);
     g_object_set(G_OBJECT(pgie), "config-file-path", "./config_infer_primary_yolo.txt", NULL);
+    
 
     // Force NVMM memory format for Orin
     GstCaps *caps = gst_caps_from_string("video/x-raw(memory:NVMM), format=NV12");
     g_object_set(G_OBJECT(caps_filter), "caps", caps, NULL);
     gst_caps_unref(caps);
 
-    /* 3. Add to Pipeline */
-    gst_bin_add_many(GST_BIN(pipeline), source, h264parser, decoder, nvvidconv0, caps_filter, 
-                     streammux, pgie, nvvidconv, nvosd, sink, NULL);
+    /*Add to Pipeline */
+    gst_bin_add_many(GST_BIN(pipeline), source, h265parser, decoder, nvvidconv0, caps_filter, 
+                     streammux, pgie, nvvidconv, nvosd, sink, demux, NULL);
 
-    /* 4. Link Elements */
-    // Link: File -> Parser -> Decoder -> Converter -> CapsFilter
-    gst_element_link_many(source, h264parser, decoder, nvvidconv0, caps_filter, NULL);
+    /* Link Elements */
+    if (!gst_element_link(source, demux)) { /*Source to Demuxer (Static link)*/
+       g_printerr("Source and Demux could not be linked.\n");
+       return -1;
+     }
+
+    // Connect the callback to the Demuxer
+    g_signal_connect(demux, "pad-added", G_CALLBACK(on_pad_added), h265parser);
+
+    // Link the rest of the HARDWARE chain (Static links)
+    if (!gst_element_link_many(h265parser, decoder, nvvidconv0, caps_filter, NULL)) {
+      g_printerr("Hardware elements could not be linked.\n");
+      return -1;
+    }
 
     // Link: CapsFilter -> Streammux (Manual Pad)
-    GstPad *sinkpad = gst_element_get_request_pad(streammux, "sink_0");
+    GstPad *sinkpad = gst_element_request_pad_simple(streammux, "sink_0");
     GstPad *srcpad  = gst_element_get_static_pad(caps_filter, "src");
     if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK) {
         g_printerr("Failed to link capsfilter to streammux.\n");
@@ -81,7 +142,7 @@ int main(int argc, char *argv[]) {
 
     // Link: Streammux -> PGIE -> VidConv -> OSD -> Sink
     gst_element_link_many(streammux, pgie, nvvidconv, nvosd, sink, NULL);
-
+    
     /* 5. Execution */
     gst_element_set_state(pipeline, GST_STATE_PLAYING);
     g_print("Running...\n");
