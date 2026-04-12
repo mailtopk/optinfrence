@@ -25,7 +25,12 @@ File source -> qtdemux (mp4) -> H264 Parser
 #include <stdio.h>
 #include "gstnvdsmeta.h"
 
-static void on_pad_added(GstElement *element, GstPad *pad, gpointer data) {
+GstCaps *caps = gst_pad_get_current_caps(pad);
+    if (!caps) {
+        g_print("No caps available on pad\n");
+        return;
+    }
+    const gchar *name = gst_structure_get_name(gst_caps_get_structure(caps, 0));
     GstCaps *caps = gst_pad_get_current_caps(pad);
     const gchar *name = gst_structure_get_name(gst_caps_get_structure(caps, 0)); 
     
