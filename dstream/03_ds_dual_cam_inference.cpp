@@ -98,7 +98,10 @@ int main(int argc, char *argv[]) {
     nvvidconv   = gst_element_factory_make("nvvideoconvert", "nvvideo-converter1");
     nvosd       = gst_element_factory_make("nvdsosd", "nv-onscreendisplay");
     sink        = gst_element_factory_make("nveglglessink", "nvvideo-renderer");
-
+if (!pipeline || !source1 || !source2 || !caps_csi || !vidconv_usb || !nvvidconv2 || !caps_usb || !streammux || !pgie || !tiler || !nvvidconv || !nvosd || !sink) {
+    g_printerr("One element could not be created. Exiting.\n");
+    return -1;
+}
     if (!pipeline || !source1 || !source2 || !caps_csi || !streammux || !pgie || !tiler || !sink) {
         g_printerr("One element could not be created. Exiting.\n");
         return -1;
