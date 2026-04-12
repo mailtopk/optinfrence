@@ -53,7 +53,7 @@ int main(int argc, char *argv[]) {
     nvvidconv2 = gst_element_factory_make("nvvideoconvert", "nv-converter-osd");
     nvosd = gst_element_factory_make("nvdsosd", "onscreen-display");
     sink = gst_element_factory_make("nveglglessink", "egl-sink");
-
+if (!pipeline || !source || !capsfilter || !streammux || !pgie || !nvvidconv2 || !nvosd || !sink) {
     if (!pipeline || !source || !capsfilter || !streammux || !pgie || !sink) {
         std::cerr << "One or more elements could not be created." << std::endl;
         return -1;
