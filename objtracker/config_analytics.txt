@@ -1,5 +1,6 @@
 [property]
 enable=1
+# Resolution (1280×720)
 config-width=1280
 config-height=720
 
@@ -8,13 +9,13 @@ enable=1
 # A rectangle covering the center of the screen
 # Points: Top-Left, Top-Right, Bottom-Right, Bottom-Left
 roi-RF=320;180;960;180;960;540;320;540
-inverse=0
+inverse-roi=0
 class-id=0
 
 [line-crossing-stream-0]
 enable=1
 # A vertical line at x=640 (Dead center)
-# Format: x1;y1 (Start); x2;y2 (End); x3;y3; x4;y4 (Direction Arrow pointing Right)
-line-crossing-Entry=640;100;640;620;700;100;700;620
+# Format: direction(x1;y1;x2;y2) virtual-line(x1c;y1c;x2c;y2c)
+# Entry: direction=East (700;100 to 700;620), line at x=640
+line-crossing-Entry=700;100;700;620;640;100;640;620
 class-id=0
-exit-direction=east

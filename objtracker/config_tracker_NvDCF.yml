@@ -10,4 +10,4 @@ NvDCF:
   # Minimum confidence for a track to be considered valid
   minDetectorConfidence: 0.2
   # Feature extraction for Re-ID (helps with occlusions)
-  useReid: 1
+  useReid: 0
