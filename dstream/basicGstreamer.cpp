@@ -31,7 +31,13 @@ GstCaps *caps = gst_pad_get_current_caps(pad);
         return;
     }
     const gchar *name = gst_structure_get_name(gst_caps_get_structure(caps, 0));
-    GstCaps *caps = gst_pad_get_current_caps(pad);
+const GstStructure *structure = gst_caps_get_structure(caps, 0);
+    if (!structure) {
+        g_print("No structure in caps\n");
+        gst_caps_unref(caps);
+        return;
+    }
+    const gchar *name = gst_structure_get_name(structure);
     const gchar *name = gst_structure_get_name(gst_caps_get_structure(caps, 0)); 
     
     g_print("In Demux pad adding. Name: %s\n", name);
