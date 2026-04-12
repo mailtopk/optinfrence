@@ -83,7 +83,22 @@ if (!pipeline || !source || !capsfilter || !streammux || !pgie || !nvvidconv2 ||
         std::cerr << "Failed to link source to capsfilter" << std::endl;
         return -1;
     }
-
+GstPad *sinkpad = gst_element_request_pad_simple(streammux, "sink_0");
+GstPad *srcpad = gst_element_get_static_pad(capsfilter, "src");
+if (!sinkpad || !srcpad) {
+    std::cerr << "Failed to get pads" << std::endl;
+    if (sinkpad) gst_object_unref(sinkpad);
+    if (srcpad) gst_object_unref(srcpad);
+    return -1;
+}
+if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK) {
+    std::cerr << "Failed to link capsfilter to stream muxer" << std::endl;
+    gst_object_unref(sinkpad);
+    gst_object_unref(srcpad);
+    return -1;
+}
+gst_object_unref(sinkpad);
+gst_object_unref(srcpad);
     GstPad *sinkpad = gst_element_request_pad_simple(streammux, "sink_0");
     GstPad *srcpad = gst_element_get_static_pad(capsfilter, "src");
     if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK) {
