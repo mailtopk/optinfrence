@@ -45,7 +45,12 @@ const GstStructure *structure = gst_caps_get_structure(caps, 0);
     // Check if the file is H265 to match our h265parse element
     if (g_str_has_prefix(name, "video/x-h265")) {
         GstElement *parser = (GstElement*)data;
-        GstPad *sinkpad = gst_element_get_static_pad(parser, "sink");
+GstPad *sinkpad = gst_element_get_static_pad(parser, "sink");
+        if (!sinkpad) {
+            g_print("Failed to get sink pad from parser\n");
+            gst_caps_unref(caps);
+            return;
+        }
         
         if (gst_pad_is_linked(sinkpad)) {
             g_print("Already linked\n");
