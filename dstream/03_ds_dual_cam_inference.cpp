@@ -145,7 +145,22 @@ if (!pipeline || !source1 || !source2 || !caps_csi || !vidconv_usb || !nvvidconv
     gst_pad_link(srcpad0, sinkpad0);
     gst_object_unref(srcpad0);
 
-    // Link USB Branch
+// Link CSI Branch
+if (!gst_element_link(source1, caps_csi)) {
+    g_printerr("Failed to link CSI source elements\n");
+    return -1;
+}
+GstPad *sinkpad0 = gst_element_request_pad_simple(streammux, "sink_0");
+if (!sinkpad0) {
+    g_printerr("Failed to get sink pad 0 from streammux\n");
+    return -1;
+}
+GstPad *srcpad0 = gst_element_get_static_pad(caps_csi, "src");
+if (gst_pad_link(srcpad0, sinkpad0) != GST_PAD_LINK_OK) {
+    g_printerr("Failed to link CSI branch to streammux\n");
+    return -1;
+}
+gst_object_unref(srcpad0);
     if (!gst_element_link_many(source2, vidconv_usb, nvvidconv2, caps_usb, NULL)) return -1;
     GstPad *sinkpad1 = gst_element_request_pad_simple(streammux, "sink_1");
     GstPad *srcpad1 = gst_element_get_static_pad(caps_usb, "src");
