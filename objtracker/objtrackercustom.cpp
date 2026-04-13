@@ -1,6 +1,10 @@
 /*
 $ g++ -o ds-objtracker objtrackercustom.cpp -I /opt/nvidia/deepstream/deepstream-7.1/sources/includes -I /usr/local/cuda/include $(pkg-config --cflags --libs gstreamer-1.0 glib-2.0) -L /opt/nvidia/deepstream/deepstream-7.1/lib -lnvdsgst_meta -lnvds_meta -lnvdsgst_helper -lnvds_infer
 
+PIPELINE 
+CSI Camera (Live) → Direct to capsfilter
+MP4 File (H.265) → Demux → H.265 Parser → Hardware Decoder → Memory Convert
+
 USAGE:
   ./ds-objtracker                         Use CSI camera  (default)
   ./ds-objtracker --input video.mp4       Analyze MP4 file (default: save to file)
@@ -17,10 +21,17 @@ EXAMPLES:
 #include <string>
 #include "gstnvdsmeta.h"
 #include "nvds_analytics_meta.h"
+#include <signal.h>
+#include <csignal>
 
 const char* INFER_CONFIG_PATH  = "./config_infer_primary_yolo.txt";
 const char* TRACKER_LIB_PATH = "/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so";
 const char* NVDCF_CONFIG_PATH = "./config_tracker_NvDCF.yml";
+const char* ANALYTICS_CONFIG_FILE_PATH = "./config_analytics.txt";
+
+// Global references for signal handler
+static GMainLoop *g_main_loop = NULL;
+static GstPipeline *g_pipeline = NULL;
 
 // Source type enumeration
 enum SourceType {
@@ -135,15 +146,18 @@ static GstPadProbeReturn analytics_done_buf_probe(GstPad *pad, GstPadProbeInfo *
             if (user_meta->base_meta.meta_type == NVDS_USER_FRAME_META_NVDSANALYTICS) {
                 NvDsAnalyticsFrameMeta *meta = (NvDsAnalyticsFrameMeta *)user_meta->user_meta_data;
                 
-                // Extract line crossing count
-                if (meta->objLCCumCnt.find("Entry") != meta->objLCCumCnt.end()) {
-                    std::cout << "[Entry] Total crossed: " << meta->objLCCumCnt["Entry"] << std::endl;
+                // Extract cumulative line crossing count - iterates all defined line crossings
+                if (!meta->objLCCumCnt.empty()) {
+                    for (auto& lc : meta->objLCCumCnt) {
+                        std::cout << "[Line Crossing] " << lc.first << ": " << lc.second << " total\n";
+                    }
                 }
                 
-                // Extract ROI occupancy
-                if (meta->objInROIcnt.find("RF") != meta->objInROIcnt.end()) {
-                    uint32_t current_occupancy = meta->objInROIcnt["RF"];
-                    std::cout << "[ROI RF] Current occupancy: " << current_occupancy << std::endl;
+                // Extract ROI occupancy - objects currently in defined regions
+                if (!meta->objInROIcnt.empty()) {
+                    for (auto& roi : meta->objInROIcnt) {
+                        std::cout << "[ROI] " << roi.first << ": " << roi.second << " objects\n";
+                    }
                 }
             }
         }
@@ -151,6 +165,32 @@ static GstPadProbeReturn analytics_done_buf_probe(GstPad *pad, GstPadProbeInfo *
     return GST_PAD_PROBE_OK;
 }
 
+// Callback for qtdemux's pad-added signal (handles H.265 video detection)
+static void on_demux_pad_added(GstElement *element, GstPad *pad, gpointer data) {
+    GstCaps *caps = gst_pad_get_current_caps(pad);
+    const gchar *name = gst_structure_get_name(gst_caps_get_structure(caps, 0));
+    GstElement *h265parser = (GstElement *)data;
+    
+    std::cout << "qtdemux pad: " << name << "\n";
+    
+    // Check if the stream is H.265
+    if (g_str_has_prefix(name, "video/x-h265")) {
+        GstPad *sinkpad = gst_element_get_static_pad(h265parser, "sink");
+        
+        if (!gst_pad_is_linked(sinkpad)) {
+            if (gst_pad_link(pad, sinkpad) == GST_PAD_LINK_OK) {
+                std::cout << "qtdemux → h265parse\n";
+            } else {
+                std::cerr << "Failed to link qtdemux to h265parse\n";
+            }
+        }
+        gst_object_unref(sinkpad);
+    } else {
+        std::cout << "Skipping pad: " << name << " (not H.265)\n";
+    }
+    
+    gst_caps_unref(caps);
+}
 
 static gboolean bus_call(GstBus *bus, GstMessage *msg, gpointer data) {
     GMainLoop *loop = (GMainLoop *)data; 
@@ -186,6 +226,19 @@ static gboolean bus_call(GstBus *bus, GstMessage *msg, gpointer data) {
     return TRUE;
 }
 
+// Signal handler for graceful shutdown
+static void signal_handler(int sig) {
+    std::cout << "\n Signal " << sig << " received (Ctrl+C). Gracefully shutting down...\n";
+    
+    if (g_pipeline) {
+        gst_element_send_event(GST_ELEMENT(g_pipeline), gst_event_new_eos());
+    }
+    
+    if (g_main_loop) {
+        g_main_loop_quit(g_main_loop);
+    }
+}
+
 int main(int argc, char *argv[]) {
     GMainLoop *loop = NULL;
     
@@ -193,36 +246,68 @@ int main(int argc, char *argv[]) {
     parse_arguments(argc, argv);
     
     // Pipeline elements
-    GstElement *pipeline, *source, *capsfilter, *streammux, *tracker, *analytics, *pgie, 
-               *nvvidconv2, *nvosd, *sink, *queue1, *queue2;
+    GstElement *pipeline, *source, *demux, *h265parser, *decoder, *nvvidconv_decoder, *capsfilter, 
+               *streammux, *tracker, *analytics, *pgie, *nvvidconv2, *nvosd, *sink, *queue1, *queue2;
                
     GstBus *bus;
     guint bus_watch_id;
 
     gst_init(&argc, &argv);
     loop = g_main_loop_new(NULL, FALSE);
+    
+    // Store global references for signal handler
+    g_main_loop = loop;
 
     pipeline = gst_pipeline_new("yolo-pipeline");
     
-    // Create source based on config (CSI camera or file)
-    source = create_source_element();
+    // Store global reference for signal handler
+    g_pipeline = GST_PIPELINE(pipeline);
     
-    capsfilter = gst_element_factory_make("capsfilter", "caps-filter");
-    streammux = gst_element_factory_make("nvstreammux", "stream-muxer");
-    pgie = gst_element_factory_make("nvinfer", "primary-inference");
-    tracker = gst_element_factory_make("nvtracker", "tracker");
-    analytics = gst_element_factory_make("nvdsanalytics", "analytics");
-    queue1 = gst_element_factory_make("queue", "queue-before-converter");
-    nvvidconv2 = gst_element_factory_make("nvvideoconvert", "nv-converter-osd");
-    nvosd = gst_element_factory_make("nvdsosd", "onscreen-display");
-    queue2 = gst_element_factory_make("queue", "queue-before-sink");
+    // Create source and decoder elements for file input
+    demux = NULL;
+    h265parser = NULL;
+    decoder = NULL;
+    nvvidconv_decoder = NULL;
     
-    // Create sink based on configuration
-    sink = create_sink_element();
+    if (g_config.source_type == SOURCE_FILE) {
+        // File input requires: filesrc → qtdemux → h265parse → nvv4l2decoder
+        source = gst_element_factory_make("filesrc", "file-source");
+        demux = gst_element_factory_make("qtdemux", "qt-demuxer");
+        h265parser = gst_element_factory_make("h265parse", "h265-parser");
+        decoder = gst_element_factory_make("nvv4l2decoder", "nvv4l2-decoder");
+        nvvidconv_decoder = gst_element_factory_make("nvvideoconvert", "nvvideo-converter-decoder");
+        
+        if (!source || !demux || !h265parser || !decoder || !nvvidconv_decoder) {
+            g_printerr("Failed to create file input elements\n");
+            return -1;
+        }
+        
+        g_object_set(G_OBJECT(source), "location", g_config.input_file.c_str(), NULL);
+    } else {
+        // CSI camera input
+        source = create_source_element();
+        
+        if (!source) {
+            g_printerr("Failed to create CSI camera source\n");
+            return -1;
+        }
+    }
+    
+    // Common elements for all sources
+    capsfilter  = gst_element_factory_make("capsfilter", "caps-filter");
+    streammux   = gst_element_factory_make("nvstreammux", "stream-muxer");
+    pgie        = gst_element_factory_make("nvinfer", "primary-inference");
+    tracker     = gst_element_factory_make("nvtracker", "tracker");
+    analytics   = gst_element_factory_make("nvdsanalytics", "analytics");
+    queue1      = gst_element_factory_make("queue", "queue-before-converter");
+    nvvidconv2  = gst_element_factory_make("nvvideoconvert", "nv-converter-osd");
+    nvosd       = gst_element_factory_make("nvdsosd", "onscreen-display");
+    queue2      = gst_element_factory_make("queue", "queue-before-sink");
+    sink        = create_sink_element();
 
     if (!pipeline || !source || !capsfilter || !streammux || 
             !pgie || !tracker || !analytics || !queue1 || !nvvidconv2 || !nvosd || !queue2 || !sink) {
-        std::cerr << "One or more elements could not be created." << std::endl;
+        g_printerr("One or more elements could not be created\n");
         return -1;
     }
 
@@ -230,17 +315,19 @@ int main(int argc, char *argv[]) {
     g_object_set(G_OBJECT(queue1), "max-size-buffers", 30, "max-size-time", 0, NULL);
     g_object_set(G_OBJECT(queue2), "max-size-buffers", 30, "max-size-time", 0, NULL);
 
-    // Configure Caps
+    // Configure Caps based on source type
     GstCaps *caps = NULL;
     if (g_config.source_type == SOURCE_CSI_CAMERA) {
-        // CSI camera outputs NVMM format
+        // CSI camera outputs NVMM format directly
         caps = gst_caps_from_string("video/x-raw(memory:NVMM), width=1920, height=1080, format=NV12, framerate=30/1");
+        g_object_set(G_OBJECT(capsfilter), "caps", caps, NULL);
+        gst_caps_unref(caps);
     } else {
-        // File input: accept any raw video format, let streammux handle conversion
-        caps = gst_caps_from_string("video/x-raw");
+        // File input: decoder outputs raw video, capsfilter enforces NVMM format for streammux
+        caps = gst_caps_from_string("video/x-raw(memory:NVMM), format=NV12");
+        g_object_set(G_OBJECT(capsfilter), "caps", caps, NULL);
+        gst_caps_unref(caps);
     }
-    g_object_set(G_OBJECT(capsfilter), "caps", caps, NULL);
-    gst_caps_unref(caps);
 
     // Configure Muxer
     gboolean is_live_source = (g_config.source_type == SOURCE_CSI_CAMERA);
@@ -262,22 +349,44 @@ int main(int argc, char *argv[]) {
         "compute-hw", 0, 
         NULL);
 
-    g_object_set(G_OBJECT(analytics), "config-file", "config_analytics.txt", NULL);
+    g_object_set(G_OBJECT(analytics), "config-file", ANALYTICS_CONFIG_FILE_PATH, NULL);
 
-    // Build the Pipeline - Simple: source → capsfilter → streammux → inference → OSD → sink
-    gst_bin_add_many(GST_BIN(pipeline), source, capsfilter, streammux, pgie, tracker, 
-                     analytics, queue1, nvvidconv2, nvosd, queue2, sink, NULL);
-    
-    // Link: source → capsfilter → streammux (via sink_0 pad)
-    if (!gst_element_link(source, capsfilter)) {
-        std::cerr << "Failed to link source to capsfilter\n";
-        return -1;
+    // Build the Pipeline
+    if (g_config.source_type == SOURCE_FILE) {
+        // File: filesrc → qtdemux → h265parse → nvv4l2decoder → nvvidconv → capsfilter → streammux
+        gst_bin_add_many(GST_BIN(pipeline), source, demux, h265parser, decoder, nvvidconv_decoder, 
+                         capsfilter, streammux, pgie, tracker, analytics, queue1, nvvidconv2, nvosd, queue2, sink, NULL);
+        
+        // Link: filesrc → qtdemux (static)
+        if (!gst_element_link(source, demux)) {
+            g_printerr("Failed to link filesrc to qtdemux\n");
+            return -1;
+        }
+        
+        // Link: qtdemux pad-added → h265parse (dynamic callback)
+        g_signal_connect(demux, "pad-added", G_CALLBACK(on_demux_pad_added), h265parser);
+        
+        // Link: h265parse → decoder → nvvidconv → capsfilter (static)
+        if (!gst_element_link_many(h265parser, decoder, nvvidconv_decoder, capsfilter, NULL)) {
+            g_printerr("Failed to link h265parse to capsfilter\n");
+            return -1;
+        }
+    } else {
+        // CSI Camera: source → capsfilter → streammux
+        gst_bin_add_many(GST_BIN(pipeline), source, capsfilter, streammux, pgie, tracker, 
+                         analytics, queue1, nvvidconv2, nvosd, queue2, sink, NULL);
+        
+        if (!gst_element_link(source, capsfilter)) {
+            g_printerr("Failed to link source to capsfilter\n");
+            return -1;
+        }
     }
     
+    // Link capsfilter to muxer (for both sources)
     GstPad *sinkpad = gst_element_request_pad_simple(streammux, "sink_0");
     GstPad *srcpad = gst_element_get_static_pad(capsfilter, "src");
     if (gst_pad_link(srcpad, sinkpad) != GST_PAD_LINK_OK) {
-        std::cerr << "Failed to link capsfilter to stream muxer\n";
+        g_printerr("Failed to link capsfilter to streammux\n");
         return -1;
     }
     gst_object_unref(sinkpad);
@@ -285,12 +394,12 @@ int main(int argc, char *argv[]) {
 
     // Link: streammux → PGIE → Tracker → Analytics → Queue1 → nvvidconv2 → OSD → Queue2 → Sink
     if (!gst_element_link_many(streammux, pgie, tracker, analytics, queue1, NULL)) {
-        std::cerr << "Failed to link streammux to analytics chain\n";
+        g_printerr("Failed to link streammux to analytics\n");
         return -1;
     }
     
     if (!gst_element_link_many(queue1, nvvidconv2, nvosd, queue2, sink, NULL)) {
-        std::cerr << "Failed to link analytics to sink\n";
+        g_printerr("Failed to link analytics to sink\n");
         return -1;
     }
 
@@ -305,6 +414,10 @@ int main(int argc, char *argv[]) {
     bus_watch_id = gst_bus_add_watch(bus, bus_call, loop);
     gst_object_unref(bus);
     
+    // Set up signal handlers for graceful shutdown (Ctrl+C)
+    signal(SIGINT, signal_handler);   // Ctrl+C
+    signal(SIGTERM, signal_handler);  // Termination signal
+    
     std::cout << "\n╔════════════════════════════════════════════════╗\n"
               << "║ DeepStream Object Tracker + Analytics         ║\n"
               << "║────────────────────────────────────────────────║\n"
@@ -317,120 +430,41 @@ int main(int argc, char *argv[]) {
               << "║ Model: YOLO + NvDCF Tracker                 ║\n"
               << "║ Resolution: 1280x720                         ║\n"
               << "║ Queues: Enabled (buffer management)         ║\n"
+              << "║────────────────────────────────────────────────║\n"
+              << "║ Press Ctrl+C to exit gracefully              ║\n"
               << "╚════════════════════════════════════════════════╝\n" << std::endl;
     
     gst_element_set_state(pipeline, GST_STATE_PLAYING);
     g_main_loop_run(loop);
 
-    // Cleanup...
-    std::cout << "\n Shutting down pipeline..." << std::endl;
+    // Cleanup - graceful shutdown
+    std::cout << "\nShutting down pipeline...\n";
+    
+    // Stop the pipeline
     gst_element_set_state(pipeline, GST_STATE_NULL);
+    std::cout << "Pipeline stopped\n";
+    
+    // Unref the pipeline
     gst_object_unref(GST_OBJECT(pipeline));
+    std::cout << " Pipeline unrefed\n";
+    
+    // Remove the bus watch
     g_source_remove(bus_watch_id);
+    std::cout << " Bus watch removed\n";
+    
+    // Unref the main loop
     g_main_loop_unref(loop);
+    std::cout << " Main loop unrefed\n";
+    
+    // Clear global references
+    g_main_loop = NULL;
+    g_pipeline = NULL;
+    
+    std::cout << " All resources cleaned up successfully\n\n";
 
     return 0;
 }
 
-
-/* HEADLESS SINK MODES
-
-DeepStream pipelines typically require a display (nveglglessink). For headless operation
-(e.g., Docker containers, SSH sessions, CI/CD), use one of these modes:
-
-=== MODE 1: FAKESINK (Recommended for Analytics-Only) ===
-  Command: ./ds-objtracker --headless
-  Best for: Analytics inference, object counting, MQTT publishing
-  Resources: Minimal (no video output encoding)
-  Latency: Lowest (~10ms)
-  Output: Console logs, MQTT messages
-  
-  Example pipeline output:
-    Created fakesink (headless, analytics only)
-    Starting DeepStream Pipeline (Headless)
-    Sink type: FAKESINK (Analytics Only)
-
-=== MODE 2: FILE OUTPUT (Save to MP4/H.264) ===
-  Command: ./ds-objtracker --file output.mp4
-  Best for: Recording detections, archival, post-processing
-  Resources: Moderate (video encoding)
-  Latency: ~50ms (encoding overhead)
-  Output: MP4 file with OSD overlays
-  
-  Note: Requires h264enc element in pipeline. May need:
-    sudo apt install libgstreamer1.0-plugins-{base,good}
-
-=== MODE 3: UDP STREAMING ===
-  Command: ./ds-objtracker --udp localhost:5000
-  Best for: Network streaming, remote monitoring
-  Resources: Moderate (network I/O)
-  Latency: ~50-100ms (network + encoding)
-  Receiver: ffplay udp://localhost:5000 -fflags nobuffer
-  
-  Examples:
-    # Stream to remote host
-    ./ds-objtracker --udp 192.168.1.100:5000
-    
-    # On remote machine, view stream
-    ffplay udp://0.0.0.0:5000 -fflags nobuffer
-
-=== MODE 4: DISPLAY (GPU with X11/Wayland) ===
-  Command: ./ds-objtracker --display
-  Best for: Local debugging, interactive monitoring
-  Requirements: GPU display (SSH with -X forwarding, or local desktop)
-  Note: Falls back to fakesink if display unavailable
-
-=== DOCKER USAGE ===
-
-With docker-compose (headless) or SSH:
-  # Run in container without display
-  docker run -d \\
-    -v /path/to/configs:/app/configs \\
-    ds-objtracker \\
-    --headless --verbose
-
-  # View logs
-  docker logs -f container_id
-
-  # Stream logs to MQTT (via integration in your C++ app)
-  # See deepstream-ui/MQTT_INTEGRATION.md
-
-=== PERFORMANCE COMPARISON ===
-
-Sink Mode     | CPU   | Memory | GPU | Output Format | Latency
-------------------------------------------------------------------
-fakesink      | <5%   | ~80MB  | Yes | None (stdout) | ~10ms
-file (MP4)    | 15%   | ~120MB | Yes | MP4 + OSD     | ~50ms
-UDP stream    | 10%   | ~100MB | Yes | MJPEG over IP | ~80ms
-display       | 8%    | ~150MB | Yes | GPU display   | ~30ms
-
-=== TIPS ===
-
-1. Use --headless + MQTT integration for microservices architecture
-2. Use --file for recording debugging sessions
-3. Use --udp for remote monitoring with minimal setup
-4. Always use --verbose during testing
-5. Combine with --file to log analytics to JSON/CSV separately
-
-=== TROUBLESHOOTING ===
-
-Q: "fakesink not found"
-A: Should not happen - fakesink is part of gstreamer-core
-
-Q: "Error linking sink element"
-A: Check pipeline format compatibility:
-   - Display sink expects raw video
-   - File/UDP sinks need encoded format (handled by OSD output)
-
-Q: High CPU on file output
-A: Reduce resolution or framerate in muxer config:
-   g_object_set(..., "width", 640, "height", 480, ...)
-
-Q: UDP packets dropped
-A: Increase MTU size or reduce quality:
-   sudo ip link set eth0 mtu 9000
-
-*/
 
 
 
