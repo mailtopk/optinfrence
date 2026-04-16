@@ -1,4 +1,7 @@
 /*
+$ sudo nvpmodel -m 0 --for MAX perf and power
+$ sudo jetson_clocks
+
 $ g++ -o ds-objtracker objtrackercustom.cpp -I /opt/nvidia/deepstream/deepstream-7.1/sources/includes -I /usr/local/cuda/include $(pkg-config --cflags --libs gstreamer-1.0 glib-2.0) -L /opt/nvidia/deepstream/deepstream-7.1/lib -lnvdsgst_meta -lnvds_meta -lnvdsgst_helper -lnvds_infer
 
 PIPELINE 
@@ -53,8 +56,8 @@ void print_usage(const char* program_name) {
               << "  --input <path>   Analyze MP4 file (default: CSI camera)\n"
               << "  --display        Display output on screen\n\n"
               << "EXAMPLES:\n"
-              << "  ./ds-objtracker\n"
-              << "  ./ds-objtracker --input video.mp4\n"
+              << "  ./ds-objtracker --display\n"
+              << "  ./ds-objtracker --input video.mp4 --headless\n"
               << "  ./ds-objtracker --input video.mp4 --display\n\n";
 }
 
@@ -240,16 +243,24 @@ static void signal_handler(int sig) {
 }
 
 int main(int argc, char *argv[]) {
+    
+    if(argc == 1) {
+        std::cout << "No command-line arguments provided.\n";
+        print_usage(argv[0]);
+        exit(0);
+    }
+    
     GMainLoop *loop = NULL;
     
+
     // Parse command-line arguments
     parse_arguments(argc, argv);
     
     // Pipeline elements
-    GstElement *pipeline, *source, *demux, *h265parser, *decoder, *nvvidconv_decoder, *capsfilter, 
-               *streammux, *tracker, *analytics, *pgie, *nvvidconv2, *nvosd, *sink, *queue1, *queue2;
-               
-    GstBus *bus;
+    GstElement *pipeline = NULL, *source = NULL, *demux = NULL, *h265parser = NULL, *decoder = NULL, *nvvidconv_decoder = NULL, *capsfilter = NULL, 
+               *streammux = NULL, *tracker = NULL, *analytics = NULL, *pgie = NULL, *nvvidconv2 = NULL, *nvosd = NULL, *sink = NULL, *queue1 = NULL, *queue2 = NULL;
+
+    GstBus *bus = NULL;
     guint bus_watch_id;
 
     gst_init(&argc, &argv);
@@ -262,12 +273,6 @@ int main(int argc, char *argv[]) {
     
     // Store global reference for signal handler
     g_pipeline = GST_PIPELINE(pipeline);
-    
-    // Create source and decoder elements for file input
-    demux = NULL;
-    h265parser = NULL;
-    decoder = NULL;
-    nvvidconv_decoder = NULL;
     
     if (g_config.source_type == SOURCE_FILE) {
         // File input requires: filesrc → qtdemux → h265parse → nvv4l2decoder
