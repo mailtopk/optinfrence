@@ -149,10 +149,17 @@ static GstPadProbeReturn analytics_done_buf_probe(GstPad *pad, GstPadProbeInfo *
             if (user_meta->base_meta.meta_type == NVDS_USER_FRAME_META_NVDSANALYTICS) {
                 NvDsAnalyticsFrameMeta *meta = (NvDsAnalyticsFrameMeta *)user_meta->user_meta_data;
                 
+                std::cout << "\n\n";
                 // Extract cumulative line crossing count - iterates all defined line crossings
                 if (!meta->objLCCumCnt.empty()) {
                     for (auto& lc : meta->objLCCumCnt) {
                         std::cout << "[Line Crossing] " << lc.first << ": " << lc.second << " total\n";
+                    }
+                }
+
+                if(!meta->ocStatus.empty()){
+                    for(auto& ocs : meta->ocStatus){
+                        std::cout << std::boolalpha << "[Crowded Status] " << ocs.second << "\n";
                     }
                 }
                 
